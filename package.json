@@ -8,6 +8,7 @@
     "build": "node build.js"
   },
   "devDependencies": {
+    "@babel/standalone": "^8.0.4",
     "vitest": "^4.1.10"
   }
 }

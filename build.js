@@ -7,6 +7,7 @@
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import * as Babel from '@babel/standalone';
 
 const root = dirname(fileURLToPath(import.meta.url));
 const src = (f) => readFileSync(join(root, 'src', f), 'utf8');
@@ -34,7 +35,18 @@ const modules = indent(
     .join('\n\n'),
 );
 
-const components = indent(src('components.js'));
+// Compile the JSX at build time purely to fail loudly on a syntax error. The
+// browser compiles it again at run time via babel standalone; without this check
+// a broken bundle deploys and only fails once someone opens the page.
+const componentSource = src('components.js');
+try {
+  Babel.transform(componentSource, { presets: ['react'], filename: 'components.js' });
+} catch (err) {
+  console.error(`JSX does not compile:\n${err.message}`);
+  process.exit(1);
+}
+
+const components = indent(componentSource);
 
 const html = src('shell.html')
   .replace('__TOKENS__', () => src('tokens.css'))

@@ -268,3 +268,182 @@ function Leaderboard({ rows, expanded, onToggle, suppressRank }) {
     </div>
   );
 }
+
+const CHART_WINDOWS = [30, 90, 365];
+
+/** Inline SVG line chart.
+ *
+ *  Mark specs follow the dataviz skill: 2px lines, recessive grid and axes, text
+ *  in ink tokens rather than series colour, a legend always present (7 series is
+ *  past the 4-series direct-label threshold), and a crosshair + tooltip, which
+ *  the skill ships by default on line charts.
+ *
+ *  A null value breaks the line rather than dropping to zero, so a day that
+ *  failed to fetch reads as a gap. */
+function TrendChart({ dayMap, today, days, onDaysChange }) {
+  const [hidden, setHidden] = useState(() => new Set());
+  const [hoverIndex, setHoverIndex] = useState(null);
+
+  const dates = lastNDates(days, today);
+  const { series, total } = dailySeries(dayMap, dates);
+
+  const W = 940, H = 220, PAD_L = 38, PAD_R = 10, PAD_B = 22, PAD_T = 10;
+  const maxY = Math.max(1, ...total.filter((v) => v !== null));
+  const x = (i) => PAD_L + (i * (W - PAD_L - PAD_R)) / Math.max(1, dates.length - 1);
+  const y = (v) => PAD_T + (H - PAD_T - PAD_B) * (1 - v / maxY);
+
+  /** Split into unbroken runs so nulls leave gaps instead of joining across them. */
+  const pathFor = (values) => {
+    const runs = [];
+    let run = [];
+    values.forEach((v, i) => {
+      if (v === null) { if (run.length) runs.push(run); run = []; }
+      else run.push(`${x(i)},${y(v)}`);
+    });
+    if (run.length) runs.push(run);
+    return runs
+      .map((r) => (r.length === 1 ? `M${r[0]} L${r[0]}` : `M${r.join(' L')}`))
+      .join(' ');
+  };
+
+  const toggle = (key) => {
+    const next = new Set(hidden);
+    if (next.has(key)) next.delete(key); else next.add(key);
+    setHidden(next);
+  };
+
+  const onMove = (event) => {
+    const box = event.currentTarget.getBoundingClientRect();
+    const px = ((event.clientX - box.left) / box.width) * W;
+    const step = (W - PAD_L - PAD_R) / Math.max(1, dates.length - 1);
+    const i = Math.round((px - PAD_L) / step);
+    setHoverIndex(i >= 0 && i < dates.length ? i : null);
+  };
+
+  const visible = series.filter((s) => !hidden.has(s.key));
+  const legend = [
+    { key: '__total__', label: 'Total', colour: 'var(--fg-strong)' },
+    ...series.map((s) => ({ key: s.key, label: s.key, colour: colourFor(s.key) })),
+  ];
+
+  return (
+    <div style={{ background: 'var(--bg-default)', border: '1px solid var(--outline)', borderRadius: 8, padding: 16 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+        <strong style={{ fontSize: 14 }}>Completed per day</strong>
+        <div style={{ display: 'flex', gap: 4 }}>
+          {CHART_WINDOWS.map((w) => (
+            <button
+              key={w}
+              onClick={() => onDaysChange(w)}
+              style={{
+                padding: '3px 10px', fontSize: 12, borderRadius: 5, cursor: 'pointer', font: 'inherit',
+                border: `1px solid ${days === w ? 'var(--fg-strong)' : 'var(--outline)'}`,
+                background: days === w ? 'var(--fg-strong)' : 'var(--bg-default)',
+                color: days === w ? 'var(--bg-default)' : 'var(--fg-soft)',
+              }}
+            >
+              {w}d
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ position: 'relative' }}>
+        <svg
+          viewBox={`0 0 ${W} ${H}`}
+          style={{ width: '100%', height: 'auto', display: 'block' }}
+          onMouseMove={onMove}
+          onMouseLeave={() => setHoverIndex(null)}
+        >
+          {/* Recessive grid: baseline, midline, ceiling. */}
+          {[0, maxY / 2, maxY].map((v) => (
+            <line
+              key={v}
+              x1={PAD_L} y1={y(v)} x2={W - PAD_R} y2={y(v)}
+              stroke="var(--outline)"
+              strokeDasharray={v === 0 ? undefined : '2 4'}
+            />
+          ))}
+          {[0, maxY].map((v) => (
+            <text key={v} x={4} y={y(v) + 4} fontSize="10" fill="var(--fg-inactive)">
+              {Math.round(v)}
+            </text>
+          ))}
+
+          {hoverIndex !== null && (
+            <line
+              x1={x(hoverIndex)} y1={PAD_T} x2={x(hoverIndex)} y2={y(0)}
+              stroke="var(--fg-inactive)" strokeWidth="1"
+            />
+          )}
+
+          {!hidden.has('__total__') && (
+            <path d={pathFor(total)} fill="none" stroke="var(--fg-strong)" strokeWidth="2"
+                  strokeLinejoin="round" strokeLinecap="round" />
+          )}
+          {visible.map((s) => (
+            <path key={s.key} d={pathFor(s.values)} fill="none" stroke={colourFor(s.key)}
+                  strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+          ))}
+
+          <text x={PAD_L} y={H - 6} fontSize="10" fill="var(--fg-inactive)">{dates[0]}</text>
+          <text x={W - PAD_R} y={H - 6} fontSize="10" fill="var(--fg-inactive)" textAnchor="end">
+            {dates[dates.length - 1]}
+          </text>
+        </svg>
+
+        {hoverIndex !== null && (
+          <div style={{
+            position: 'absolute', top: 0,
+            left: `${(x(hoverIndex) / W) * 100}%`,
+            transform: hoverIndex > dates.length / 2 ? 'translateX(-100%)' : 'none',
+            marginLeft: hoverIndex > dates.length / 2 ? -8 : 8,
+            background: 'var(--bg-default)', border: '1px solid var(--outline)',
+            borderRadius: 6, padding: '6px 10px', fontSize: 12, pointerEvents: 'none',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.08)', whiteSpace: 'nowrap', zIndex: 1,
+          }}>
+            <div style={{ fontWeight: 600, marginBottom: 3 }}>{dates[hoverIndex]}</div>
+            {total[hoverIndex] === null ? (
+              <div style={{ color: 'var(--fg-soft)' }}>not loaded</div>
+            ) : (
+              <React.Fragment>
+                {!hidden.has('__total__') && (
+                  <div style={{ display: 'flex', gap: 8, justifyContent: 'space-between' }}>
+                    <span>Total</span><strong>{total[hoverIndex]}</strong>
+                  </div>
+                )}
+                {visible.map((s) => (
+                  <div key={s.key} style={{ display: 'flex', gap: 10, justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                      <span style={{ width: 8, height: 8, borderRadius: 2, background: colourFor(s.key) }} />
+                      {s.key}
+                    </span>
+                    <span>{s.values[hoverIndex]}</span>
+                  </div>
+                ))}
+              </React.Fragment>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginTop: 8 }}>
+        {legend.map((item) => (
+          <button
+            key={item.key}
+            onClick={() => toggle(item.key)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6, border: 0, background: 'none',
+              cursor: 'pointer', font: 'inherit', fontSize: 12, padding: 0,
+              color: 'var(--fg-soft)',
+              opacity: hidden.has(item.key) ? 0.35 : 1,
+            }}
+          >
+            <span style={{ width: 14, height: 3, background: item.colour, borderRadius: 2 }} />
+            {item.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}

@@ -13,12 +13,27 @@
   --bg-soft: #F5F4F4;
   --outline: rgba(0, 0, 0, 0.08);
 
-  --cat-01: #6E93E0;
-  --cat-02: #B07FE8;
-  --cat-03: #EE86CE;
-  --cat-04: #EBCB2E;
-  --cat-05: #38934F;
-  --cat-06: #F09340;
+  /* SLOT ORDER IS LOAD-BEARING — the colour-blindness checks run on adjacent
+     slots, so reordering these silently breaks accessibility.
+     Validated with dataviz/scripts/validate_palette.js (light, surface #FCFCFC):
+       lightness band PASS · chroma PASS
+       CVD separation  worst adjacent #EE86CE↔#38934F ΔE 18.0 (protan)
+       normal vision   worst adjacent #C4A413↔#EE86CE ΔE 25.3
+     In Patchwork's own order (blue, purple, pink, yellow, green, orange) this
+     FAILED: blue↔purple was ΔE 2.1 for deuteranopes and 10.3 for normal vision,
+     below the 15 floor that labels and texture cannot excuse. Orange now sits
+     between them.
+     Contrast is under 3:1 for five slots, which the validator allows only with
+     "relief" — the leaderboard above the chart is the required table view and
+     carries every series' number in text. Do not remove it and keep the chart.
+     --cat-06 is darkened from the sampled #EBCB2E, which sat at lightness 0.845
+     (band is 0.43–0.77) and 1.56:1 on white — invisible as a 1.5px line. */
+  --cat-01: #6E93E0;  /* blue    */
+  --cat-02: #F09340;  /* orange  */
+  --cat-03: #B07FE8;  /* purple  */
+  --cat-04: #38934F;  /* green   */
+  --cat-05: #EE86CE;  /* pink    */
+  --cat-06: #C4A413;  /* yellow, darkened from #EBCB2E */
   /* Unassigned is a seventh row; the categorical set only has six, so it takes a
      neutral grey and is excluded from the chart. */
   --cat-unassigned: #94908D;
