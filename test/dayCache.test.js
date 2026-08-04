@@ -281,3 +281,37 @@ describe('fetch order', () => {
     expect(seen).toEqual(['2026-08-03', '2026-08-02', '2026-08-01']);
   });
 });
+
+describe('cancellation', () => {
+  // Without this, switching from Year back to 7 days leaves a 365-day fetch running
+  // for minutes, still reporting "of 365" over a view that needs 7.
+  it('stops fetching once the signal is aborted', async () => {
+    const signal = { aborted: false };
+    const client = {
+      fetchDay: vi.fn(async () => {
+        if (client.fetchDay.mock.calls.length >= 2) signal.aborted = true;
+        return [row('Albert Cai')];
+      }),
+    };
+    const cache = createDayCache(client, fakeStorage(), { concurrency: 1 });
+    await cache.ensureDays(['a', 'b', 'c', 'd', 'e'], undefined, { signal });
+    expect(client.fetchDay).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps whatever it managed to fetch before the abort', async () => {
+    const signal = { aborted: false };
+    const client = {
+      fetchDay: vi.fn(async () => { signal.aborted = true; return [row('Albert Cai')]; }),
+    };
+    const cache = createDayCache(client, fakeStorage(), { concurrency: 1 });
+    await cache.ensureDays(['2026-08-01', '2026-08-02'], undefined, { signal });
+    expect(cache.size()).toBe(1);
+  });
+
+  it('runs to completion when no signal is given', async () => {
+    const client = fakeClient();
+    const cache = createDayCache(client, fakeStorage(), { concurrency: 1 });
+    await cache.ensureDays(['a', 'b', 'c']);
+    expect(client.fetchDay).toHaveBeenCalledTimes(3);
+  });
+});

@@ -7,8 +7,9 @@ const STORAGE_KEY = 'wocoo-analytics/days/v2';
 
 // The 276-days-lost incident was throttling, and retry with backoff below is the
 // actual remedy. Concurrency was also cut 6 -> 3 at the time, which fixed nothing
-// extra and doubled a 365-day refresh; 8 with retries is faster and still recovers.
-const DEFAULT_CONCURRENCY = 8;
+// extra and doubled a 365-day refresh. Raised again to 12: retries absorb the
+// throttling this risks, and request latency — not Jira's limit — is the bottleneck.
+const DEFAULT_CONCURRENCY = 12;
 const DEFAULT_ATTEMPTS = 3;
 const BASE_BACKOFF_MS = 400;
 
@@ -54,7 +55,7 @@ export function createDayCache(client, storage = globalThis.sessionStorage, opti
   /** `force` refetches days already held, overwriting each as it arrives. Refresh uses
    *  it instead of clearing first: a cleared cache would render the board as zeros for
    *  the whole refresh, and zeros look like a real answer. */
-  async function ensureDays(dates, onProgress, { force = false } = {}) {
+  async function ensureDays(dates, onProgress, { force = false, signal } = {}) {
     const todo = force ? [...dates] : dates.filter((d) => !dayMap.has(d));
     const total = todo.length;
     let loaded = 0;
@@ -83,6 +84,10 @@ export function createDayCache(client, storage = globalThis.sessionStorage, opti
     const queue = [...todo].sort().reverse();
     async function worker() {
       while (queue.length) {
+        // Checked before each fetch, not just at the start: a year-long load has to
+        // stop promptly when the view moves on, or it keeps saturating the connection
+        // and reporting progress for a window nobody is looking at any more.
+        if (signal?.aborted) return;
         const date = queue.shift();
         try {
           dayMap.set(date, await fetchWithRetry(date));

@@ -125,15 +125,28 @@ function App() {
   // The widest window currently on screen, never below the cold-start floor.
   const requiredDays = Math.max(COLD_START_DAYS, periodDays, chartDays);
 
+  // Only one load may be in flight. Starting a new one aborts the old, otherwise a
+  // 365-day fetch keeps running after the view moves on — saturating the connection
+  // and reporting "of 365" over a window that needs 7.
+  const inFlight = useRef(null);
+
   const fillDates = useCallback(async (dates, force) => {
     if (!cache || dates.length === 0) return;
+    if (inFlight.current) inFlight.current.aborted = true;
+    const signal = { aborted: false };
+    inFlight.current = signal;
+
     setError(null);
     try {
-      await cache.ensureDays(dates, setProgress, { force });
+      await cache.ensureDays(dates, (p) => { if (!signal.aborted) setProgress(p); }, { force, signal });
     } catch (e) {
-      setError(e?.message || String(e));
+      if (!signal.aborted) setError(e?.message || String(e));
     }
-    setProgress(null);
+    // A superseded load must not clear the newer one's progress or claim to be done.
+    if (inFlight.current === signal) {
+      inFlight.current = null;
+      setProgress(null);
+    }
     setRevision((n) => n + 1);
   }, [cache]);
 
