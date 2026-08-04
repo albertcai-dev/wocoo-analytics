@@ -89,7 +89,9 @@ function LoadState({ progress, missing, affectsCounts, onRetry }) {
       }}>
         {dates.length} {dates.length === 1 ? 'day' : 'days'} failed to load
         {' '}({shown}{rest > 0 ? ` and ${rest} more` : ''}) — figures for those days are
-        missing{affectsCounts ? ', so the counts below are incomplete and ranking is hidden' : ''}.{' '}
+        missing{affectsCounts
+          ? ', so the counts below are incomplete and ranking is hidden'
+          : ' from the chart; the counts below are unaffected'}.{' '}
         <button onClick={onRetry} style={{ font: 'inherit', textDecoration: 'underline', border: 0, background: 'none', cursor: 'pointer' }}>
           Retry
         </button>
@@ -123,17 +125,30 @@ function App() {
   // The widest window currently on screen, never below the cold-start floor.
   const requiredDays = Math.max(COLD_START_DAYS, periodDays, chartDays);
 
-  const fill = useCallback(async (days, force) => {
-    if (!cache) return;
+  const fillDates = useCallback(async (dates, force) => {
+    if (!cache || dates.length === 0) return;
     setError(null);
     try {
-      await cache.ensureDays(lastNDates(days, today), setProgress, { force });
+      await cache.ensureDays(dates, setProgress, { force });
     } catch (e) {
       setError(e?.message || String(e));
     }
     setProgress(null);
     setRevision((n) => n + 1);
-  }, [cache, today]);
+  }, [cache]);
+
+  const fill = useCallback(
+    (days, force) => fillDates(lastNDates(days, today), force),
+    [fillDates, today],
+  );
+
+  /** Just the days that failed. Retry used to call refresh, which force-refetched the
+   *  entire held range — 365 requests to recover two days. Failed days are absent from
+   *  the cache, so an unforced fill picks up exactly them. */
+  const retryMissing = useCallback(
+    () => fillDates([...(cache?.getMissing() ?? [])].sort().reverse(), false),
+    [cache, fillDates],
+  );
 
   // Fills gaps only. Runs on a cold cache, and again when Year or the 365d chart
   // widens what's needed — that one is the deliberate on-demand wait. Returning to a
@@ -217,7 +232,7 @@ function App() {
         progress={progress}
         missing={visibleMissing}
         affectsCounts={incomplete}
-        onRetry={refresh}
+        onRetry={retryMissing}
       />
       <SummaryTiles totals={totals} incomplete={incomplete} />
 
