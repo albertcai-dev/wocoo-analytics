@@ -1,0 +1,32 @@
+/* Patchwork tokens.
+   Greys: read from Foundation/Colour in Figma — authoritative.
+   Categorical: SAMPLED FROM A SCREENSHOT and numerically approximate. The Figma
+   doc's hex chips are detached from their swatches (six multi-hued swatches are
+   labelled with a single green ramp), so these were eyedropped. Replace when the
+   real values surface; do NOT "correct" them back to the greens in Figma. */
+:root {
+  --fg-strong: #32302F;
+  --fg-soft: #615E5C;
+  --fg-inactive: #94908D;
+  --bg-app: #FCFCFC;
+  --bg-default: #FFFFFF;
+  --bg-soft: #F5F4F4;
+  --outline: rgba(0, 0, 0, 0.08);
+
+  --cat-01: #6E93E0;
+  --cat-02: #B07FE8;
+  --cat-03: #EE86CE;
+  --cat-04: #EBCB2E;
+  --cat-05: #38934F;
+  --cat-06: #F09340;
+  /* Unassigned is a seventh row; the categorical set only has six, so it takes a
+     neutral grey and is excluded from the chart. */
+  --cat-unassigned: #94908D;
+}
+
+body {
+  margin: 0;
+  background: var(--bg-app);
+  color: var(--fg-strong);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
