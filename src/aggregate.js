@@ -1,5 +1,9 @@
-// Pure aggregation over a day-keyed map of rows. No I/O, no date arithmetic —
-// the day is the map key, so there is nothing here to get wrong about timezones.
+// Pure aggregation over a day-keyed map of rows. No I/O, and no date arithmetic of its
+// own — the day is the map key, so there is nothing here to get wrong about timezones.
+//
+// Depends on dates.js only for weekday naming; build.js already orders dates before
+// aggregate, so the two share scope in the bundle.
+import { WEEKDAY_LABELS, weekdayIndex } from './dates.js';
 
 export const ROSTER = ['Albert Cai', 'Esther Liao', 'Ishan Jain', 'Luke Gazmin', 'JC Ulat'];
 
@@ -123,4 +127,36 @@ export function dailySeries(dayMap, dates) {
   });
 
   return { dates, series, total };
+}
+
+/** Share of handled tickets that ended cancelled, or null when nothing was handled.
+ *  Null rather than 0 so the display can show "—" instead of a meaningless 0%. */
+export function cancelledRate({ done, cancelled }) {
+  const handled = done + cancelled;
+  return handled === 0 ? null : cancelled / handled;
+}
+
+/**
+ * Completed-per-weekday, Monday first.
+ *
+ * Reports the mean, not the total: a 30-day window contains four of some weekdays and
+ * five of others, so totals would rank weekdays by how often they appeared rather than
+ * by how busy they are. Days absent from the map never loaded, so they are excluded
+ * from both numerator and denominator — counting them as zero would invent a lull.
+ */
+export function byWeekday(dayMap, dates) {
+  const buckets = WEEKDAY_LABELS.map((label) => ({ label, total: 0, days: 0, mean: null }));
+
+  for (const date of dates) {
+    const rows = dayMap.get(date);
+    if (!rows) continue;
+    const bucket = buckets[weekdayIndex(date)];
+    bucket.days += 1;
+    bucket.total += rows.filter((r) => r.outcome !== 'cancelled').length;
+  }
+
+  for (const bucket of buckets) {
+    if (bucket.days > 0) bucket.mean = bucket.total / bucket.days;
+  }
+  return buckets;
 }

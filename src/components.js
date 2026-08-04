@@ -251,6 +251,7 @@ function App() {
 
       <Leaderboard rows={rows} expanded={expanded} onToggle={setExpanded} suppressRank={incomplete} />
       <TrendChart dayMap={dayMap} today={today} days={chartDays} onDaysChange={setChartDays} />
+      <WeekdayPattern dayMap={dayMap} today={today} days={chartDays} />
 
       <p style={{ color: 'var(--fg-inactive)', fontSize: 11, marginTop: 24 }}>
         A ticket reopened and closed again counts on its most recent close date, so historical
@@ -270,6 +271,13 @@ function colourFor(key) {
   if (key === 'Unassigned') return 'var(--cat-unassigned)';
   const index = key === 'Other' ? 5 : ROSTER.indexOf(key);
   return index >= 0 ? CATEGORICAL[index % CATEGORICAL.length] : 'var(--cat-unassigned)';
+}
+
+/** Cancelled share as a percentage, or an em dash when nothing was handled — a 0%
+ *  on an empty row would read as a real result. */
+function formatRate(counts) {
+  const rate = cancelledRate(counts);
+  return rate === null ? '—' : `${Math.round(rate * 100)}%`;
 }
 
 function WorkTypeBreakdown({ rows, assigneeKey: key }) {
@@ -317,6 +325,7 @@ function Leaderboard({ rows, expanded, onToggle, suppressRank }) {
         <span style={{ ...headerCell, flex: 1 }}>{suppressRank ? 'Assignee' : 'Assignee (ranked)'}</span>
         <span style={{ ...headerCell, width: 70, textAlign: 'right' }}>Done</span>
         <span style={{ ...headerCell, width: 90, textAlign: 'right' }}>Cancelled</span>
+        <span style={{ ...headerCell, width: 64, textAlign: 'right' }}>Cancel&nbsp;%</span>
       </div>
 
       {perAssignee.map((entry) => (
@@ -332,6 +341,7 @@ function Leaderboard({ rows, expanded, onToggle, suppressRank }) {
             </span>
             <span style={{ width: 70, textAlign: 'right', fontWeight: 600 }}>{entry.done}</span>
             <span style={{ width: 90, textAlign: 'right', color: 'var(--fg-soft)' }}>{entry.cancelled}</span>
+            <span style={{ width: 64, textAlign: 'right', color: 'var(--fg-soft)' }}>{formatRate(entry)}</span>
           </div>
           {expanded.has(entry.key) && <WorkTypeBreakdown rows={rows} assigneeKey={entry.key} />}
         </div>
@@ -349,6 +359,7 @@ function Leaderboard({ rows, expanded, onToggle, suppressRank }) {
           </span>
           <span style={{ width: 70, textAlign: 'right' }}>{totals.done}</span>
           <span style={{ width: 90, textAlign: 'right' }}>{totals.cancelled}</span>
+          <span style={{ width: 64, textAlign: 'right' }}>{formatRate(totals)}</span>
         </div>
         {expanded.has('__total__') && <WorkTypeBreakdown rows={rows} assigneeKey={null} />}
       </div>
@@ -363,6 +374,55 @@ function Leaderboard({ rows, expanded, onToggle, suppressRank }) {
           , not listed above.
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * Mean completed per weekday over the chart's window.
+ *
+ * Mean rather than total: a window holds four of some weekdays and five of others, so
+ * totals would rank weekdays by how often they appeared. Days that never loaded are
+ * excluded rather than counted as zero, and the sample size is shown per bar so a
+ * weekday backed by two days is not read with the same confidence as one backed by 50.
+ */
+function WeekdayPattern({ dayMap, today, days }) {
+  const buckets = byWeekday(dayMap, lastNDates(days, today));
+  const max = Math.max(1, ...buckets.map((b) => b.mean ?? 0));
+
+  return (
+    <div style={{
+      background: 'var(--bg-default)', border: '1px solid var(--outline)',
+      borderRadius: 8, padding: 16, marginTop: 20,
+    }}>
+      <strong style={{ fontSize: 14 }}>Average completed by weekday</strong>
+      <div style={{ color: 'var(--fg-soft)', fontSize: 12, marginTop: 2, marginBottom: 12 }}>
+        Mean per day over the last {days} days, so weekdays are comparable regardless of
+        how many of each the window happens to contain.
+      </div>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', height: 120 }}>
+        {buckets.map((b) => (
+          <div key={b.label} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+            <span style={{ fontSize: 12, fontWeight: 600 }}>
+              {b.mean === null ? '—' : b.mean.toFixed(1)}
+            </span>
+            <div
+              title={`${b.label}: ${b.total} completed across ${b.days} ${b.days === 1 ? 'day' : 'days'}`}
+              style={{
+                width: '100%',
+                height: `${((b.mean ?? 0) / max) * 78}px`,
+                minHeight: b.mean === null ? 0 : 2,
+                background: 'var(--cat-01)',
+                borderRadius: '3px 3px 0 0',
+              }}
+            />
+            <span style={{ fontSize: 11, color: 'var(--fg-soft)' }}>{b.label}</span>
+            <span style={{ fontSize: 10, color: 'var(--fg-inactive)' }}>
+              {b.days === 0 ? 'no data' : `n=${b.days}`}
+            </span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -394,8 +454,12 @@ function TrendChart({ dayMap, today, days, onDaysChange }) {
   // Days that never loaded are drawn as 0 so every line stays continuous, but the
   // columns are shaded below — a 0 meaning "not fetched" must stay distinguishable
   // from a 0 meaning "nobody closed anything", which is a real and common value.
-  const notLoaded = dates.map((_, i) => total[i] === null);
+  // One path of vertical segments, rather than an element per day.
   const bandWidth = Math.max(3, step);
+  const noDataPath = dates
+    .map((_, i) => (total[i] === null ? `M${x(i)},${PAD_T} L${x(i)},${y(0)}` : ''))
+    .filter(Boolean)
+    .join(' ');
 
   /** One continuous line. Null days plot at 0 rather than breaking the path. */
   const pathFor = (values) => {
@@ -473,10 +537,7 @@ function TrendChart({ dayMap, today, days, onDaysChange }) {
 
           {/* Shade the columns we never loaded, so their zeros read as absence of data
               rather than absence of work. */}
-          {notLoaded.map((isMissing, i) => (isMissing ? (
-            <line key={i} x1={x(i)} y1={PAD_T} x2={x(i)} y2={y(0)}
-                  stroke="var(--fg-inactive)" strokeWidth={bandWidth} opacity="0.12" />
-          ) : null))}
+          <path d={noDataPath} stroke="var(--fg-inactive)" strokeWidth={bandWidth} opacity="0.12" />
 
           {hoverIndex !== null && (
             <line

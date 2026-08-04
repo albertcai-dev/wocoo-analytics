@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { lastNDates, nextDate, daysBetween } from '../src/dates.js';
+import { lastNDates, nextDate, daysBetween, weekdayIndex } from '../src/dates.js';
 
 describe('nextDate', () => {
   it('advances one day', () => {
@@ -62,5 +62,25 @@ describe('daysBetween', () => {
   // Same UTC-arithmetic reason as nextDate: local getters would drift a day.
   it('is unaffected by a DST transition', () => {
     expect(daysBetween('2026-03-07', '2026-03-09')).toBe(3);
+  });
+});
+
+describe('weekdayIndex', () => {
+  // Monday = 0, so the chart reads Mon→Sun rather than starting on Sunday.
+  it('puts Monday at 0', () => {
+    expect(weekdayIndex('2026-08-03')).toBe(0);
+  });
+  it('puts Tuesday at 1', () => {
+    expect(weekdayIndex('2026-08-04')).toBe(1);
+  });
+  it('puts Saturday at 5', () => {
+    expect(weekdayIndex('2026-08-08')).toBe(5);
+  });
+  it('puts Sunday at 6', () => {
+    expect(weekdayIndex('2026-08-09')).toBe(6);
+  });
+  // UTC arithmetic again: a local-time reading would shift this one a day.
+  it('is unaffected by a DST transition', () => {
+    expect(weekdayIndex('2026-03-08')).toBe(6);
   });
 });

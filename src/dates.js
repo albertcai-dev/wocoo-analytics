@@ -40,3 +40,12 @@ export function lastNDates(n, today) {
 export function daysBetween(from, to) {
   return Math.round((toUTC(to) - toUTC(from)) / DAY_MS) + 1;
 }
+
+export const WEEKDAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+/** Weekday of a date string, Monday = 0. Monday-first because the working week is
+ *  what the pattern is read against; getUTCDay puts Sunday at 0, hence the shift. */
+export function weekdayIndex(date) {
+  const [y, m, d] = date.split('-').map(Number);
+  return (new Date(Date.UTC(y, m - 1, d)).getUTCDay() + 6) % 7;
+}

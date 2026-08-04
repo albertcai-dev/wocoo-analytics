@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   assigneeKey, outcomeOf, rowsForDates, totalsFor,
-  byAssignee, byWorkType, dailySeries, partitionRoster,
+  byAssignee, byWorkType, dailySeries, partitionRoster, cancelledRate, byWeekday,
 } from '../src/aggregate.js';
 
 const row = (assignee, workType, outcome = 'done') => ({ assignee, workType, outcome });
@@ -193,5 +193,71 @@ describe('partitionRoster', () => {
     const { excluded } = partitionRoster(byAssignee([row('Albert Cai', 'A')]));
     expect(excluded.other).toEqual({ done: 0, cancelled: 0 });
     expect(excluded.unassigned).toEqual({ done: 0, cancelled: 0 });
+  });
+});
+
+describe('cancelledRate', () => {
+  it('is the share of handled tickets that were cancelled', () => {
+    expect(cancelledRate({ done: 3, cancelled: 1 })).toBeCloseTo(0.25);
+  });
+  it('is 0 when nothing was cancelled', () => {
+    expect(cancelledRate({ done: 5, cancelled: 0 })).toBe(0);
+  });
+  it('is 1 when everything was cancelled', () => {
+    expect(cancelledRate({ done: 0, cancelled: 4 })).toBe(1);
+  });
+  // Guards the display: 0/0 must not render as NaN%.
+  it('is null when there is nothing to rate', () => {
+    expect(cancelledRate({ done: 0, cancelled: 0 })).toBeNull();
+  });
+});
+
+describe('byWeekday', () => {
+  // Mon 2026-08-03, Tue 04, ... Sun 09, then Mon 10 again.
+  const dayMap = new Map([
+    ['2026-08-03', [row('Albert Cai', 'A'), row('Esther Liao', 'A')]],   // Mon: 2
+    ['2026-08-04', [row('Albert Cai', 'A')]],                            // Tue: 1
+    ['2026-08-08', []],                                                  // Sat: 0
+    ['2026-08-10', [row('Albert Cai', 'A'), row('Albert Cai', 'B'),
+                    row('Esther Liao', 'C'), row('JC Ulat', 'D')]],      // Mon: 4
+  ]);
+  const dates = ['2026-08-03', '2026-08-04', '2026-08-08', '2026-08-10'];
+
+  it('returns one entry per weekday, Monday first', () => {
+    const result = byWeekday(dayMap, dates);
+    expect(result).toHaveLength(7);
+    expect(result[0].label).toBe('Mon');
+    expect(result[6].label).toBe('Sun');
+  });
+
+  // The whole point: a 30-day window holds 4 or 5 of each weekday, so totals would
+  // rank weekdays by how often they happened to appear rather than how busy they are.
+  it('averages across the sampled days rather than totalling', () => {
+    const mon = byWeekday(dayMap, dates)[0];
+    expect(mon.days).toBe(2);
+    expect(mon.total).toBe(6);
+    expect(mon.mean).toBe(3);
+  });
+
+  it('counts a loaded-but-empty day as a zero, not as absent', () => {
+    const sat = byWeekday(dayMap, dates)[5];
+    expect(sat.days).toBe(1);
+    expect(sat.mean).toBe(0);
+  });
+
+  // A day that failed to load is unknown, so it must not drag the average down.
+  it('excludes days missing from the map entirely', () => {
+    const result = byWeekday(dayMap, [...dates, '2026-08-11']);   // Tue, never fetched
+    expect(result[1].days).toBe(1);
+    expect(result[1].mean).toBe(1);
+  });
+
+  it('reports mean null for a weekday with no sampled days', () => {
+    expect(byWeekday(dayMap, ['2026-08-03'])[2].mean).toBeNull();
+  });
+
+  it('ignores cancelled tickets', () => {
+    const map = new Map([['2026-08-03', [row('Albert Cai', 'A', 'cancelled')]]]);
+    expect(byWeekday(map, ['2026-08-03'])[0].mean).toBe(0);
   });
 });
