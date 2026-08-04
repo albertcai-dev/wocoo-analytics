@@ -34,3 +34,9 @@ export function lastNDates(n, today) {
   }
   return out;
 }
+
+/** Inclusive day count from `from` to `to`, so a single day is 1. Used to work out
+ *  how wide the cached range already is when deciding what a refresh must renew. */
+export function daysBetween(from, to) {
+  return Math.round((toUTC(to) - toUTC(from)) / DAY_MS) + 1;
+}

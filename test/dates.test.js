@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { lastNDates, nextDate } from '../src/dates.js';
+import { lastNDates, nextDate, daysBetween } from '../src/dates.js';
 
 describe('nextDate', () => {
   it('advances one day', () => {
@@ -43,5 +43,24 @@ describe('lastNDates', () => {
   it('is sorted oldest first', () => {
     const result = lastNDates(30, '2026-08-03');
     expect([...result].sort()).toEqual(result);
+  });
+});
+
+describe('daysBetween', () => {
+  it('counts a single day span as 1', () => {
+    expect(daysBetween('2026-08-03', '2026-08-03')).toBe(1);
+  });
+
+  it('counts an inclusive span', () => {
+    expect(daysBetween('2026-07-28', '2026-08-03')).toBe(7);
+  });
+
+  it('spans a year', () => {
+    expect(daysBetween('2025-08-04', '2026-08-03')).toBe(365);
+  });
+
+  // Same UTC-arithmetic reason as nextDate: local getters would drift a day.
+  it('is unaffected by a DST transition', () => {
+    expect(daysBetween('2026-03-07', '2026-03-09')).toBe(3);
   });
 });

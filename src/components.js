@@ -5,9 +5,11 @@ const PERIODS = [
   { id: 'year', label: 'Year', days: 365 },
 ];
 
-// One refresh loads the whole year, so every tab and every chart window is served
-// from the same cached days. Nothing below the Refresh button ever queries Jira.
-const FULL_WINDOW_DAYS = 365;
+// A cold cache loads 90 days, which covers Day / 7 days / 30 days and the 30d and
+// 90d chart windows — every view except Year and the 365d chart. Those two fetch
+// the remaining tail on demand, once, and it stays cached afterwards. Loading the
+// full year up front made every first visit wait on data most of it never showed.
+const COLD_START_DAYS = 90;
 
 /** Today in the viewer's timezone, as YYYY-MM-DD. Matches how Jira reads bare
  *  date bounds, so the client and the query agree on what "today" means. */
@@ -117,13 +119,15 @@ function App() {
     return createDayCache(createJiraClient(window.MagicTools), globalThis.localStorage);
   }, []);
 
-  /** Re-query the whole year, overwriting each day as it lands. Forced, because
-   *  ensureDays otherwise skips days already held and the button would do nothing. */
-  const refresh = useCallback(async () => {
+  const periodDays = PERIODS.find((p) => p.id === period).days;
+  // The widest window currently on screen, never below the cold-start floor.
+  const requiredDays = Math.max(COLD_START_DAYS, periodDays, chartDays);
+
+  const fill = useCallback(async (days, force) => {
     if (!cache) return;
     setError(null);
     try {
-      await cache.ensureDays(lastNDates(FULL_WINDOW_DAYS, today), setProgress, { force: true });
+      await cache.ensureDays(lastNDates(days, today), setProgress, { force });
     } catch (e) {
       setError(e?.message || String(e));
     }
@@ -131,15 +135,20 @@ function App() {
     setRevision((n) => n + 1);
   }, [cache, today]);
 
-  // Only ever fires on a cold cache. After that the data is static until Refresh —
-  // switching tabs or chart windows just re-slices what is already held.
-  useEffect(() => {
-    if (cache && cache.size() === 0) refresh();
-  }, [cache, refresh]);
+  // Fills gaps only. Runs on a cold cache, and again when Year or the 365d chart
+  // widens what's needed — that one is the deliberate on-demand wait. Returning to a
+  // narrower view costs nothing, and the tail stays cached.
+  useEffect(() => { fill(requiredDays, false); }, [requiredDays, fill]);
+
+  /** Renew everything currently held, not just what's on screen — otherwise a refresh
+   *  from the 30-day tab would leave a stale year sitting behind one timestamp. */
+  const refresh = useCallback(() => {
+    const held = [...(cache?.getDayMap().keys() ?? [])].sort();
+    const heldSpan = held.length ? daysBetween(held[0], today) : 0;
+    return fill(Math.max(requiredDays, heldSpan), true);
+  }, [cache, fill, requiredDays, today]);
 
   const updatedAt = cache?.getUpdatedAt();
-
-  const periodDays = PERIODS.find((p) => p.id === period).days;
 
   if (!window.MagicTools) {
     return (
