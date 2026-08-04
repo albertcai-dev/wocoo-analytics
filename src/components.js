@@ -177,3 +177,94 @@ function App() {
     </div>
   );
 }
+
+const CATEGORICAL = ['var(--cat-01)', 'var(--cat-02)', 'var(--cat-03)',
+                     'var(--cat-04)', 'var(--cat-05)', 'var(--cat-06)'];
+
+/** Stable colour per row key, shared by the chart and the leaderboard.
+ *  Roster order fixes the first five; Other takes the sixth; Unassigned falls to
+ *  grey because the categorical set only has six entries. */
+function colourFor(key) {
+  if (key === 'Unassigned') return 'var(--cat-unassigned)';
+  const index = key === 'Other' ? 5 : ROSTER.indexOf(key);
+  return index >= 0 ? CATEGORICAL[index % CATEGORICAL.length] : 'var(--cat-unassigned)';
+}
+
+function WorkTypeBreakdown({ rows, assigneeKey: key }) {
+  const breakdown = byWorkType(rows, key);
+  if (breakdown.length === 0) {
+    return <div style={{ padding: '8px 0 8px 28px', color: 'var(--fg-soft)', fontSize: 13 }}>No tickets.</div>;
+  }
+  const max = Math.max(...breakdown.map((b) => b.done), 1);
+  return (
+    <div style={{ padding: '4px 0 10px 28px', background: 'var(--bg-soft)' }}>
+      {breakdown.map((b) => (
+        <div key={b.workType} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '3px 12px 3px 0', fontSize: 13 }}>
+          <span style={{ flex: 2 }}>{b.workType}</span>
+          <span style={{ flex: 3, height: 6, background: 'var(--outline)', borderRadius: 3 }}>
+            <span style={{ display: 'block', width: `${(b.done / max) * 100}%`, height: '100%', background: colourFor(key || 'Other'), borderRadius: 3 }} />
+          </span>
+          <span style={{ width: 40, textAlign: 'right', fontWeight: 600 }}>{b.done}</span>
+          <span style={{ width: 40, textAlign: 'right', color: 'var(--fg-soft)' }}>{b.cancelled || ''}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function Leaderboard({ rows, expanded, onToggle, suppressRank }) {
+  const perAssignee = byAssignee(rows);
+  const totals = totalsFor(rows);
+
+  const toggle = (key) => {
+    const next = new Set(expanded);
+    if (next.has(key)) next.delete(key); else next.add(key);
+    onToggle(next);
+  };
+
+  const headerCell = { padding: '6px 12px 6px 0', fontSize: 12, color: 'var(--fg-soft)', fontWeight: 600 };
+
+  return (
+    <div style={{ background: 'var(--bg-default)', border: '1px solid var(--outline)', borderRadius: 8, overflow: 'hidden', marginBottom: 20 }}>
+      <div style={{ display: 'flex', padding: '0 12px', borderBottom: '1px solid var(--outline)' }}>
+        <span style={{ ...headerCell, flex: 1 }}>{suppressRank ? 'Assignee' : 'Assignee (ranked)'}</span>
+        <span style={{ ...headerCell, width: 70, textAlign: 'right' }}>Done</span>
+        <span style={{ ...headerCell, width: 90, textAlign: 'right' }}>Cancelled</span>
+      </div>
+
+      {perAssignee.map((entry) => (
+        <div key={entry.key}>
+          <div
+            onClick={() => toggle(entry.key)}
+            style={{ display: 'flex', alignItems: 'center', padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid var(--outline)' }}
+          >
+            <span style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ width: 9, height: 9, borderRadius: 2, background: colourFor(entry.key), flexShrink: 0 }} />
+              <span style={{ color: 'var(--fg-inactive)', width: 12 }}>{expanded.has(entry.key) ? '▾' : '▸'}</span>
+              {entry.key}
+            </span>
+            <span style={{ width: 70, textAlign: 'right', fontWeight: 600 }}>{entry.done}</span>
+            <span style={{ width: 90, textAlign: 'right', color: 'var(--fg-soft)' }}>{entry.cancelled}</span>
+          </div>
+          {expanded.has(entry.key) && <WorkTypeBreakdown rows={rows} assigneeKey={entry.key} />}
+        </div>
+      ))}
+
+      <div>
+        <div
+          onClick={() => toggle('__total__')}
+          style={{ display: 'flex', alignItems: 'center', padding: '8px 12px', cursor: 'pointer', fontWeight: 700, background: 'var(--bg-soft)' }}
+        >
+          <span style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ width: 9, flexShrink: 0 }} />
+            <span style={{ color: 'var(--fg-inactive)', width: 12 }}>{expanded.has('__total__') ? '▾' : '▸'}</span>
+            Total
+          </span>
+          <span style={{ width: 70, textAlign: 'right' }}>{totals.done}</span>
+          <span style={{ width: 90, textAlign: 'right' }}>{totals.cancelled}</span>
+        </div>
+        {expanded.has('__total__') && <WorkTypeBreakdown rows={rows} assigneeKey={null} />}
+      </div>
+    </div>
+  );
+}
