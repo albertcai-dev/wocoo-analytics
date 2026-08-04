@@ -266,3 +266,18 @@ describe('forced refresh and updatedAt', () => {
     expect(second.getUpdatedAt()).toBe(stamp);
   });
 });
+
+describe('fetch order', () => {
+  // The board and chart both show recent days first. Fetching oldest-first means
+  // the numbers people actually look at arrive last, which is what made a 365-day
+  // refresh feel broken rather than merely slow.
+  it('fetches the newest days first', async () => {
+    const seen = [];
+    const client = {
+      fetchDay: vi.fn(async (date) => { seen.push(date); return [row('Albert Cai')]; }),
+    };
+    const cache = createDayCache(client, fakeStorage(), { concurrency: 1 });
+    await cache.ensureDays(['2026-08-01', '2026-08-02', '2026-08-03']);
+    expect(seen).toEqual(['2026-08-03', '2026-08-02', '2026-08-01']);
+  });
+});

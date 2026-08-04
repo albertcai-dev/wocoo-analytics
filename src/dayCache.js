@@ -5,10 +5,10 @@
 // than misread as untimestamped current data.
 const STORAGE_KEY = 'wocoo-analytics/days/v2';
 
-// Lowered from 6 after the Year tab lost 276 of 365 days to what was almost
-// certainly throttling: 365 requests went out six-at-a-time with no retry, and a
-// throttled response was indistinguishable from a real failure.
-const DEFAULT_CONCURRENCY = 3;
+// The 276-days-lost incident was throttling, and retry with backoff below is the
+// actual remedy. Concurrency was also cut 6 -> 3 at the time, which fixed nothing
+// extra and doubled a 365-day refresh; 8 with retries is faster and still recovers.
+const DEFAULT_CONCURRENCY = 8;
 const DEFAULT_ATTEMPTS = 3;
 const BASE_BACKOFF_MS = 400;
 
@@ -78,7 +78,9 @@ export function createDayCache(client, storage = globalThis.sessionStorage, opti
       }
     }
 
-    const queue = [...todo];
+    // Newest first: the board and chart both show recent days, so this makes the
+    // numbers people care about appear within seconds instead of last.
+    const queue = [...todo].sort().reverse();
     async function worker() {
       while (queue.length) {
         const date = queue.shift();
