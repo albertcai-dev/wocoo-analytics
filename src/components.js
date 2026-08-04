@@ -400,7 +400,10 @@ function WeekdayPattern({ dayMap, today, days }) {
         Mean per day over the last {days} days, so weekdays are comparable regardless of
         how many of each the window happens to contain.
       </div>
-      <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', height: 120 }}>
+      {/* No fixed height: the tallest column is bar + value label + two labels, which
+          overflowed a capped row and collided with the subtitle above. Bars keep their
+          computed pixel heights, so the proportions are unchanged. */}
+      <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', paddingTop: 4 }}>
         {buckets.map((b) => (
           <div key={b.label} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
             <span style={{ fontSize: 12, fontWeight: 600 }}>
