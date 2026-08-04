@@ -387,13 +387,15 @@ function TrendChart({ dayMap, today, days, onDaysChange }) {
 
   const W = 940, H = 220, PAD_L = 38, PAD_R = 10, PAD_B = 22, PAD_T = 10;
   const maxY = Math.max(1, ...total.filter((v) => v !== null));
-  const x = (i) => PAD_L + (i * (W - PAD_L - PAD_R)) / Math.max(1, dates.length - 1);
+  const step = (W - PAD_L - PAD_R) / Math.max(1, dates.length - 1);
+  const x = (i) => PAD_L + i * step;
   const y = (v) => PAD_T + (H - PAD_T - PAD_B) * (1 - v / maxY);
 
   // Days that never loaded are drawn as 0 so every line stays continuous, but the
   // columns are shaded below — a 0 meaning "not fetched" must stay distinguishable
   // from a 0 meaning "nobody closed anything", which is a real and common value.
   const notLoaded = dates.map((_, i) => total[i] === null);
+  const bandWidth = Math.max(3, step);
 
   /** One continuous line. Null days plot at 0 rather than breaking the path. */
   const pathFor = (values) => {
@@ -472,15 +474,8 @@ function TrendChart({ dayMap, today, days, onDaysChange }) {
           {/* Shade the columns we never loaded, so their zeros read as absence of data
               rather than absence of work. */}
           {notLoaded.map((isMissing, i) => (isMissing ? (
-            <rect
-              key={`nd-${i}`}
-              x={x(i) - Math.max(2, (W - PAD_L - PAD_R) / Math.max(1, dates.length - 1) / 2)}
-              y={PAD_T}
-              width={Math.max(4, (W - PAD_L - PAD_R) / Math.max(1, dates.length - 1))}
-              height={y(0) - PAD_T}
-              fill="var(--fg-inactive)"
-              opacity="0.12"
-            />
+            <line key={i} x1={x(i)} y1={PAD_T} x2={x(i)} y2={y(0)}
+                  stroke="var(--fg-inactive)" strokeWidth={bandWidth} opacity="0.12" />
           ) : null))}
 
           {hoverIndex !== null && (
