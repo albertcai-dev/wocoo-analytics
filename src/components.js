@@ -390,18 +390,15 @@ function TrendChart({ dayMap, today, days, onDaysChange }) {
   const x = (i) => PAD_L + (i * (W - PAD_L - PAD_R)) / Math.max(1, dates.length - 1);
   const y = (v) => PAD_T + (H - PAD_T - PAD_B) * (1 - v / maxY);
 
-  /** Split into unbroken runs so nulls leave gaps instead of joining across them. */
+  // Days that never loaded are drawn as 0 so every line stays continuous, but the
+  // columns are shaded below — a 0 meaning "not fetched" must stay distinguishable
+  // from a 0 meaning "nobody closed anything", which is a real and common value.
+  const notLoaded = dates.map((_, i) => total[i] === null);
+
+  /** One continuous line. Null days plot at 0 rather than breaking the path. */
   const pathFor = (values) => {
-    const runs = [];
-    let run = [];
-    values.forEach((v, i) => {
-      if (v === null) { if (run.length) runs.push(run); run = []; }
-      else run.push(`${x(i)},${y(v)}`);
-    });
-    if (run.length) runs.push(run);
-    return runs
-      .map((r) => (r.length === 1 ? `M${r[0]} L${r[0]}` : `M${r.join(' L')}`))
-      .join(' ');
+    const points = values.map((v, i) => `${x(i)},${y(v ?? 0)}`);
+    return points.length === 1 ? `M${points[0]} L${points[0]}` : `M${points.join(' L')}`;
   };
 
   const toggle = (key) => {
@@ -471,6 +468,20 @@ function TrendChart({ dayMap, today, days, onDaysChange }) {
               {Math.round(v)}
             </text>
           ))}
+
+          {/* Shade the columns we never loaded, so their zeros read as absence of data
+              rather than absence of work. */}
+          {notLoaded.map((isMissing, i) => (isMissing ? (
+            <rect
+              key={`nd-${i}`}
+              x={x(i) - Math.max(2, (W - PAD_L - PAD_R) / Math.max(1, dates.length - 1) / 2)}
+              y={PAD_T}
+              width={Math.max(4, (W - PAD_L - PAD_R) / Math.max(1, dates.length - 1))}
+              height={y(0) - PAD_T}
+              fill="var(--fg-inactive)"
+              opacity="0.12"
+            />
+          ) : null))}
 
           {hoverIndex !== null && (
             <line
