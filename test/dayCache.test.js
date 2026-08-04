@@ -210,3 +210,59 @@ describe('retry and backoff', () => {
     expect(peak).toBeLessThanOrEqual(3);
   });
 });
+
+describe('forced refresh and updatedAt', () => {
+  it('records when the data was last refreshed', async () => {
+    const cache = createDayCache(fakeClient(), fakeStorage());
+    expect(cache.getUpdatedAt()).toBeNull();
+    await cache.ensureDays(['2026-08-01']);
+    expect(typeof cache.getUpdatedAt()).toBe('string');
+  });
+
+  // Refresh must actually re-query — ensureDays skips days it already holds.
+  it('force refetches days already cached', async () => {
+    const client = fakeClient();
+    const cache = createDayCache(client, fakeStorage());
+    await cache.ensureDays(['2026-08-01']);
+    client.fetchDay.mockClear();
+
+    await cache.ensureDays(['2026-08-01'], undefined, { force: true });
+    expect(client.fetchDay).toHaveBeenCalledTimes(1);
+  });
+
+  // The board must never blink to zero mid-refresh; old rows stay until replaced.
+  it('keeps the old rows visible until the new ones arrive', async () => {
+    let batch = 1;
+    const client = { fetchDay: vi.fn(async () => Array(batch).fill(row('Albert Cai'))) };
+    const cache = createDayCache(client, fakeStorage(), { sleep: () => Promise.resolve() });
+    await cache.ensureDays(['2026-08-01']);
+
+    batch = 2;
+    const inFlight = cache.ensureDays(['2026-08-01'], undefined, { force: true });
+    expect(cache.getDayMap().get('2026-08-01')).toHaveLength(1);  // still the old value
+    await inFlight;
+    expect(cache.getDayMap().get('2026-08-01')).toHaveLength(2);  // replaced, never empty
+  });
+
+  it('clears a previously failed day once a forced refetch succeeds', async () => {
+    let fail = true;
+    const client = fakeClient(() => { if (fail) throw new Error('boom'); return [row('A')]; });
+    const cache = createDayCache(client, fakeStorage(), { attempts: 1, sleep: () => Promise.resolve() });
+    await cache.ensureDays(['2026-08-01']);
+    expect(cache.getMissing().size).toBe(1);
+    fail = false;
+    await cache.ensureDays(['2026-08-01'], undefined, { force: true });
+    expect(cache.getMissing().size).toBe(0);
+  });
+
+  it('restores both the days and the timestamp from storage', async () => {
+    const storage = fakeStorage();
+    const first = createDayCache(fakeClient(), storage);
+    await first.ensureDays(['2026-08-01']);
+    const stamp = first.getUpdatedAt();
+
+    const second = createDayCache(fakeClient(), storage);
+    expect(second.size()).toBe(1);
+    expect(second.getUpdatedAt()).toBe(stamp);
+  });
+});

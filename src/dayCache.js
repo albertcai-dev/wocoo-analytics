@@ -1,7 +1,9 @@
 // Day-keyed cache. Every board window is the union of its days, so holding days
 // rather than dated tickets is what makes narrower windows free.
 
-const STORAGE_KEY = 'wocoo-analytics/days/v1';
+// v2: the payload gained a refresh timestamp, so v1 blobs are ignored rather
+// than misread as untimestamped current data.
+const STORAGE_KEY = 'wocoo-analytics/days/v2';
 
 // Lowered from 6 after the Year tab lost 276 of 365 days to what was almost
 // certainly throttling: 365 requests went out six-at-a-time with no retry, and a
@@ -20,6 +22,7 @@ export function createDayCache(client, storage = globalThis.sessionStorage, opti
   } = options;
   const dayMap = new Map();
   const missing = new Set();
+  let updatedAt = null;
 
   restore();
 
@@ -27,7 +30,9 @@ export function createDayCache(client, storage = globalThis.sessionStorage, opti
     try {
       const raw = storage?.getItem(STORAGE_KEY);
       if (!raw) return;
-      for (const [date, rows] of Object.entries(JSON.parse(raw))) {
+      const parsed = JSON.parse(raw);
+      updatedAt = parsed.updatedAt ?? null;
+      for (const [date, rows] of Object.entries(parsed.days || {})) {
         dayMap.set(date, rows);
       }
     } catch {
@@ -37,14 +42,20 @@ export function createDayCache(client, storage = globalThis.sessionStorage, opti
 
   function persist() {
     try {
-      storage?.setItem(STORAGE_KEY, JSON.stringify(Object.fromEntries(dayMap)));
+      storage?.setItem(STORAGE_KEY, JSON.stringify({
+        updatedAt,
+        days: Object.fromEntries(dayMap),
+      }));
     } catch {
       // Quota exceeded, or storage unavailable. In-memory only from here.
     }
   }
 
-  async function ensureDays(dates, onProgress) {
-    const todo = dates.filter((d) => !dayMap.has(d));
+  /** `force` refetches days already held, overwriting each as it arrives. Refresh uses
+   *  it instead of clearing first: a cleared cache would render the board as zeros for
+   *  the whole refresh, and zeros look like a real answer. */
+  async function ensureDays(dates, onProgress, { force = false } = {}) {
+    const todo = force ? [...dates] : dates.filter((d) => !dayMap.has(d));
     const total = todo.length;
     let loaded = 0;
 
@@ -88,11 +99,13 @@ export function createDayCache(client, storage = globalThis.sessionStorage, opti
     await Promise.all(
       Array.from({ length: Math.min(concurrency, total) }, worker),
     );
+    updatedAt = new Date().toISOString();
     persist();
   }
 
   return {
     ensureDays,
+    getUpdatedAt: () => updatedAt,
     getDayMap: () => dayMap,
     getMissing: () => new Set(missing),
     size: () => dayMap.size,

@@ -5,7 +5,9 @@ const PERIODS = [
   { id: 'year', label: 'Year', days: 365 },
 ];
 
-const INITIAL_DAYS = 30;
+// One refresh loads the whole year, so every tab and every chart window is served
+// from the same cached days. Nothing below the Refresh button ever queries Jira.
+const FULL_WINDOW_DAYS = 365;
 
 /** Today in the viewer's timezone, as YYYY-MM-DD. Matches how Jira reads bare
  *  date bounds, so the client and the query agree on what "today" means. */
@@ -110,27 +112,34 @@ function App() {
   const today = useMemo(() => todayISO(), []);
   const cache = useMemo(() => {
     if (!window.MagicTools) return null;
-    return createDayCache(createJiraClient(window.MagicTools));
+    // localStorage, not session: the data is now explicitly user-refreshed and the
+    // header states its age, so surviving a reload is the point rather than a risk.
+    return createDayCache(createJiraClient(window.MagicTools), globalThis.localStorage);
   }, []);
 
-  const load = useCallback(async (days) => {
+  /** Re-query the whole year, overwriting each day as it lands. Forced, because
+   *  ensureDays otherwise skips days already held and the button would do nothing. */
+  const refresh = useCallback(async () => {
     if (!cache) return;
     setError(null);
     try {
-      await cache.ensureDays(lastNDates(days, today), setProgress);
+      await cache.ensureDays(lastNDates(FULL_WINDOW_DAYS, today), setProgress, { force: true });
     } catch (e) {
       setError(e?.message || String(e));
     }
+    setProgress(null);
     setRevision((n) => n + 1);
   }, [cache, today]);
 
-  const periodDays = PERIODS.find((p) => p.id === period).days;
-
-  // One effect covers the initial load too: on mount, periodDays is 30 and
-  // chartDays is 30, so this requests exactly INITIAL_DAYS.
+  // Only ever fires on a cold cache. After that the data is static until Refresh —
+  // switching tabs or chart windows just re-slices what is already held.
   useEffect(() => {
-    load(Math.max(periodDays, chartDays, INITIAL_DAYS));
-  }, [periodDays, chartDays, load]);
+    if (cache && cache.size() === 0) refresh();
+  }, [cache, refresh]);
+
+  const updatedAt = cache?.getUpdatedAt();
+
+  const periodDays = PERIODS.find((p) => p.id === period).days;
 
   if (!window.MagicTools) {
     return (
@@ -160,10 +169,31 @@ function App() {
 
   return (
     <div style={{ padding: 24, maxWidth: 1000, margin: '0 auto' }}>
-      <h1 style={{ fontSize: 22, marginBottom: 4 }}>WOCOO Analytics</h1>
-      <p style={{ color: 'var(--fg-soft)', fontSize: 13, marginTop: 0 }}>
-        Tickets completed by calendar day, excluding automated eligibility confirmations.
-      </p>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16 }}>
+        <div>
+          <h1 style={{ fontSize: 22, marginBottom: 4 }}>WOCOO Analytics</h1>
+          <p style={{ color: 'var(--fg-soft)', fontSize: 13, marginTop: 0 }}>
+            Tickets completed by calendar day, excluding automated eligibility confirmations.
+            {updatedAt && ` Updated ${new Date(updatedAt).toLocaleString('en-CA', {
+              month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
+            })}.`}
+          </p>
+        </div>
+        <button
+          onClick={refresh}
+          disabled={loading}
+          style={{
+            padding: '8px 16px', borderRadius: 6, font: 'inherit', fontSize: 13, fontWeight: 600,
+            whiteSpace: 'nowrap', flexShrink: 0,
+            border: '1px solid var(--outline)',
+            background: loading ? 'var(--bg-soft)' : 'var(--fg-strong)',
+            color: loading ? 'var(--fg-soft)' : 'var(--bg-default)',
+            cursor: loading ? 'not-allowed' : 'pointer',
+          }}
+        >
+          {loading ? 'Refreshing…' : 'Refresh'}
+        </button>
+      </div>
 
       {error && (
         <div style={{ padding: '8px 12px', marginBottom: 12, background: '#FDECEC', borderRadius: 6, fontSize: 13 }}>
@@ -171,12 +201,14 @@ function App() {
         </div>
       )}
 
-      <PeriodTabs value={period} onChange={setPeriod} disabled={loading} />
+      {/* Never disabled: tabs only re-slice cached days, so they stay usable
+          while a refresh is in flight. */}
+      <PeriodTabs value={period} onChange={setPeriod} disabled={false} />
       <LoadState
         progress={progress}
         missing={visibleMissing}
         affectsCounts={incomplete}
-        onRetry={() => load(Math.max(periodDays, chartDays))}
+        onRetry={refresh}
       />
       <SummaryTiles totals={totals} incomplete={incomplete} />
 
