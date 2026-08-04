@@ -1,0 +1,13 @@
+{
+  "name": "wocoo-analytics",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "test": "vitest run",
+    "build": "node build.js"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.10"
+  }
+}
