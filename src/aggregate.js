@@ -74,6 +74,29 @@ export function byWorkType(rows, key) {
   return rankByDone([...acc.values()]);
 }
 
+/** Split a ranked byAssignee list into roster rows and everyone else.
+ *
+ *  The board shows only the roster, but the headline total still counts every
+ *  ticket — so the excluded figures have to be reported somewhere or the rows
+ *  visibly fail to add up. That footnote is what keeps the arithmetic honest. */
+export function partitionRoster(entries) {
+  const zero = () => ({ done: 0, cancelled: 0 });
+  const excluded = { other: zero(), unassigned: zero() };
+  const rostered = [];
+
+  for (const entry of entries) {
+    if (ROSTER.includes(entry.key)) {
+      rostered.push(entry);
+      continue;
+    }
+    const bucket = entry.key === UNASSIGNED ? excluded.unassigned : excluded.other;
+    bucket.done += entry.done;
+    bucket.cancelled += entry.cancelled;
+  }
+
+  return { rostered, excluded };
+}
+
 /** One line per assignee plus a total line. A date absent from the map is null,
  *  never 0 — a day we failed to fetch must not render as a quiet day. */
 export function dailySeries(dayMap, dates) {

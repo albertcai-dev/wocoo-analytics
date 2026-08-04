@@ -202,7 +202,7 @@ function WorkTypeBreakdown({ rows, assigneeKey: key }) {
         <div key={b.workType} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '3px 12px 3px 0', fontSize: 13 }}>
           <span style={{ flex: 2 }}>{b.workType}</span>
           <span style={{ flex: 3, height: 6, background: 'var(--outline)', borderRadius: 3 }}>
-            <span style={{ display: 'block', width: `${(b.done / max) * 100}%`, height: '100%', background: colourFor(key || 'Other'), borderRadius: 3 }} />
+            <span style={{ display: 'block', width: `${(b.done / max) * 100}%`, height: '100%', background: key ? colourFor(key) : 'var(--fg-soft)', borderRadius: 3 }} />
           </span>
           <span style={{ width: 40, textAlign: 'right', fontWeight: 600 }}>{b.done}</span>
           <span style={{ width: 40, textAlign: 'right', color: 'var(--fg-soft)' }}>{b.cancelled || ''}</span>
@@ -213,8 +213,13 @@ function WorkTypeBreakdown({ rows, assigneeKey: key }) {
 }
 
 function Leaderboard({ rows, expanded, onToggle, suppressRank }) {
-  const perAssignee = byAssignee(rows);
+  // Only roster members get rows, but Total counts everything, so the rows
+  // deliberately do not sum to it. The footnote below carries the difference —
+  // without it the table would silently disagree with its own total.
+  const { rostered: perAssignee, excluded } = partitionRoster(byAssignee(rows));
   const totals = totalsFor(rows);
+  const hasExcluded = excluded.other.done + excluded.other.cancelled
+    + excluded.unassigned.done + excluded.unassigned.cancelled > 0;
 
   const toggle = (key) => {
     const next = new Set(expanded);
@@ -265,6 +270,17 @@ function Leaderboard({ rows, expanded, onToggle, suppressRank }) {
         </div>
         {expanded.has('__total__') && <WorkTypeBreakdown rows={rows} assigneeKey={null} />}
       </div>
+
+      {hasExcluded && (
+        <div style={{
+          padding: '6px 12px', fontSize: 11, color: 'var(--fg-inactive)',
+          borderTop: '1px solid var(--outline)',
+        }}>
+          Total includes {excluded.other.done} completed by people outside the team
+          {excluded.unassigned.done > 0 && ` and ${excluded.unassigned.done} unassigned`}
+          , not listed above.
+        </div>
+      )}
     </div>
   );
 }
@@ -320,10 +336,14 @@ function TrendChart({ dayMap, today, days, onDaysChange }) {
     setHoverIndex(i >= 0 && i < dates.length ? i : null);
   };
 
-  const visible = series.filter((s) => !hidden.has(s.key));
+  // Roster only, matching the leaderboard. The Total line still covers everyone,
+  // so it can sit above the sum of the visible series — same reconciliation gap
+  // the table's footnote explains.
+  const rosterSeries = series.filter((s) => ROSTER.includes(s.key));
+  const visible = rosterSeries.filter((s) => !hidden.has(s.key));
   const legend = [
-    { key: '__total__', label: 'Total', colour: 'var(--fg-strong)' },
-    ...series.map((s) => ({ key: s.key, label: s.key, colour: colourFor(s.key) })),
+    { key: '__total__', label: 'Total (everyone)', colour: 'var(--fg-strong)' },
+    ...rosterSeries.map((s) => ({ key: s.key, label: s.key, colour: colourFor(s.key) })),
   ];
 
   return (

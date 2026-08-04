@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   assigneeKey, outcomeOf, rowsForDates, totalsFor,
-  byAssignee, byWorkType, dailySeries,
+  byAssignee, byWorkType, dailySeries, partitionRoster,
 } from '../src/aggregate.js';
 
 const row = (assignee, workType, outcome = 'done') => ({ assignee, workType, outcome });
@@ -154,5 +154,44 @@ describe('dailySeries', () => {
     const { series, total } = dailySeries(dayMap, [...dates, '2026-08-04']);
     expect(series.find((s) => s.key === 'Albert Cai').values[3]).toBeNull();
     expect(total[3]).toBeNull();
+  });
+});
+
+describe('partitionRoster', () => {
+  const rows = [
+    row('Albert Cai', 'A'), row('Esther Liao', 'A'),
+    row('Anh Tran', 'A'), row('Anh Tran', 'B', 'cancelled'),
+    row(null, 'A'),
+  ];
+
+  it('keeps only roster members in the ranked list', () => {
+    const { rostered } = partitionRoster(byAssignee(rows));
+    expect(rostered.map((r) => r.key)).toEqual(['Albert Cai', 'Esther Liao']);
+  });
+
+  it('sums everyone else into an excluded figure', () => {
+    const { excluded } = partitionRoster(byAssignee(rows));
+    expect(excluded.other).toEqual({ done: 1, cancelled: 1 });
+    expect(excluded.unassigned).toEqual({ done: 1, cancelled: 0 });
+  });
+
+  // The reconciliation guarantee: roster rows plus the excluded figures must
+  // still equal the headline total, which is why the footnote exists at all.
+  it('roster rows plus excluded reconcile with the overall total', () => {
+    const { rostered, excluded } = partitionRoster(byAssignee(rows));
+    const sum = rostered.reduce(
+      (acc, r) => ({ done: acc.done + r.done, cancelled: acc.cancelled + r.cancelled }),
+      { done: 0, cancelled: 0 },
+    );
+    expect({
+      done: sum.done + excluded.other.done + excluded.unassigned.done,
+      cancelled: sum.cancelled + excluded.other.cancelled + excluded.unassigned.cancelled,
+    }).toEqual(totalsFor(rows));
+  });
+
+  it('reports zero excluded when everyone is on the roster', () => {
+    const { excluded } = partitionRoster(byAssignee([row('Albert Cai', 'A')]));
+    expect(excluded.other).toEqual({ done: 0, cancelled: 0 });
+    expect(excluded.unassigned).toEqual({ done: 0, cancelled: 0 });
   });
 });
