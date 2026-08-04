@@ -141,3 +141,72 @@ describe('sessionStorage mirror', () => {
     expect(cache.size()).toBe(1);
   });
 });
+
+describe('retry and backoff', () => {
+  const noSleep = () => Promise.resolve();
+
+  it('retries a day that fails once, then keeps the result', async () => {
+    let calls = 0;
+    const client = {
+      fetchDay: vi.fn(async () => {
+        calls++;
+        if (calls === 1) throw new Error('429');
+        return [row('Albert Cai')];
+      }),
+    };
+    const cache = createDayCache(client, fakeStorage(), { sleep: noSleep });
+    await cache.ensureDays(['2026-08-01']);
+
+    expect(client.fetchDay).toHaveBeenCalledTimes(2);
+    expect(cache.getDayMap().has('2026-08-01')).toBe(true);
+    expect(cache.getMissing().size).toBe(0);
+  });
+
+  it('gives up after the configured attempts and marks the day missing', async () => {
+    const client = { fetchDay: vi.fn(async () => { throw new Error('429'); }) };
+    const cache = createDayCache(client, fakeStorage(), { attempts: 3, sleep: noSleep });
+    await cache.ensureDays(['2026-08-01']);
+
+    expect(client.fetchDay).toHaveBeenCalledTimes(3);
+    expect(cache.getMissing()).toEqual(new Set(['2026-08-01']));
+    // Still absent rather than zero, even after exhausting retries.
+    expect(cache.getDayMap().has('2026-08-01')).toBe(false);
+  });
+
+  it('backs off for longer between each attempt', async () => {
+    const delays = [];
+    const client = { fetchDay: vi.fn(async () => { throw new Error('429'); }) };
+    const cache = createDayCache(client, fakeStorage(), {
+      attempts: 3,
+      sleep: (ms) => { delays.push(ms); return Promise.resolve(); },
+    });
+    await cache.ensureDays(['2026-08-01']);
+
+    expect(delays).toHaveLength(2);          // one sleep between each pair of attempts
+    expect(delays[1]).toBeGreaterThan(delays[0]);
+  });
+
+  it('does not retry a day that succeeded first time', async () => {
+    const client = { fetchDay: vi.fn(async () => [row('Albert Cai')]) };
+    const cache = createDayCache(client, fakeStorage(), { sleep: noSleep });
+    await cache.ensureDays(['2026-08-01']);
+    expect(client.fetchDay).toHaveBeenCalledTimes(1);
+  });
+
+  it('never runs more requests at once than the concurrency limit', async () => {
+    let inFlight = 0;
+    let peak = 0;
+    const client = {
+      fetchDay: vi.fn(async () => {
+        inFlight++;
+        peak = Math.max(peak, inFlight);
+        await Promise.resolve();
+        inFlight--;
+        return [row('Albert Cai')];
+      }),
+    };
+    const cache = createDayCache(client, fakeStorage(), { concurrency: 3, sleep: noSleep });
+    await cache.ensureDays(['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']);
+    expect(peak).toBeLessThanOrEqual(3);
+  });
+});

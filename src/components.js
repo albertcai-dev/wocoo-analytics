@@ -63,7 +63,7 @@ function SummaryTiles({ totals, incomplete }) {
   );
 }
 
-function LoadState({ progress, missing, onRetry }) {
+function LoadState({ progress, missing, affectsCounts, onRetry }) {
   if (progress && progress.total > 0 && progress.loaded < progress.total) {
     return (
       <div style={{ padding: '8px 12px', marginBottom: 12, background: 'var(--bg-soft)', borderRadius: 6, fontSize: 13 }}>
@@ -71,14 +71,21 @@ function LoadState({ progress, missing, onRetry }) {
       </div>
     );
   }
+  // `missing` is already scoped by the caller to the days on screen. Warning about
+  // a failed day that isn't in any visible window trains people to ignore the
+  // banner — and then they ignore it when the numbers really are wrong.
   if (missing.size > 0) {
+    const dates = [...missing].sort();
+    const shown = dates.slice(0, 3).join(', ');
+    const rest = dates.length - 3;
     return (
       <div style={{
         padding: '8px 12px', marginBottom: 12, borderRadius: 6, fontSize: 13,
         background: '#FDECEC', border: '1px solid #E9A7A7',
       }}>
-        {missing.size} {missing.size === 1 ? 'day' : 'days'} failed to load — counts below are
-        incomplete and ranking is hidden.{' '}
+        {dates.length} {dates.length === 1 ? 'day' : 'days'} failed to load
+        {' '}({shown}{rest > 0 ? ` and ${rest} more` : ''}) — figures for those days are
+        missing{affectsCounts ? ', so the counts below are incomplete and ranking is hidden' : ''}.{' '}
         <button onClick={onRetry} style={{ font: 'inherit', textDecoration: 'underline', border: 0, background: 'none', cursor: 'pointer' }}>
           Retry
         </button>
@@ -144,6 +151,11 @@ function App() {
   const rows = rowsForDates(dayMap, dates);
   const totals = totalsFor(rows);
   const incomplete = dates.some((d) => missing.has(d));
+  // The banner covers everything on screen: the board's window plus the chart's,
+  // which can be wider. Days that failed outside both are real but not currently
+  // visible, so warning about them here would be a false alarm.
+  const onScreen = new Set([...dates, ...lastNDates(chartDays, today)]);
+  const visibleMissing = new Set([...missing].filter((d) => onScreen.has(d)));
   const loading = !!progress && progress.total > 0 && progress.loaded < progress.total;
 
   return (
@@ -162,7 +174,8 @@ function App() {
       <PeriodTabs value={period} onChange={setPeriod} disabled={loading} />
       <LoadState
         progress={progress}
-        missing={missing}
+        missing={visibleMissing}
+        affectsCounts={incomplete}
         onRetry={() => load(Math.max(periodDays, chartDays))}
       />
       <SummaryTiles totals={totals} incomplete={incomplete} />
