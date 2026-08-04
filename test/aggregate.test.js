@@ -1,0 +1,158 @@
+import { describe, it, expect } from 'vitest';
+import {
+  assigneeKey, outcomeOf, rowsForDates, totalsFor,
+  byAssignee, byWorkType, dailySeries,
+} from '../src/aggregate.js';
+
+const row = (assignee, workType, outcome = 'done') => ({ assignee, workType, outcome });
+
+describe('assigneeKey', () => {
+  it('keeps roster members', () => {
+    expect(assigneeKey('Esther Liao')).toBe('Esther Liao');
+  });
+  it('folds non-roster humans to Other', () => {
+    expect(assigneeKey('Anh Tran')).toBe('Other');
+  });
+  it('maps null to Unassigned', () => {
+    expect(assigneeKey(null)).toBe('Unassigned');
+  });
+  it('maps empty string to Unassigned', () => {
+    expect(assigneeKey('')).toBe('Unassigned');
+  });
+  it('keeps Other and Unassigned distinct', () => {
+    expect(assigneeKey('Anh Tran')).not.toBe(assigneeKey(null));
+  });
+});
+
+describe('outcomeOf', () => {
+  it('recognises the cancelled status, including its internal space', () => {
+    expect(outcomeOf('Cancelled/ No Action')).toBe('cancelled');
+  });
+  it('treats Done as done', () => {
+    expect(outcomeOf('Done')).toBe('done');
+  });
+  // Deliberate default: an unrecognised status counts as work completed rather
+  // than silently vanishing from every total.
+  it('falls back to done for an unrecognised status', () => {
+    expect(outcomeOf('Shipped To Vendor')).toBe('done');
+  });
+  it('tolerates surrounding whitespace', () => {
+    expect(outcomeOf('  Cancelled/ No Action  ')).toBe('cancelled');
+  });
+});
+
+describe('rowsForDates', () => {
+  const dayMap = new Map([
+    ['2026-08-01', [row('Albert Cai', 'A')]],
+    ['2026-08-02', [row('Esther Liao', 'B')]],
+    ['2026-08-03', [row('Albert Cai', 'C')]],
+  ]);
+
+  it('collects only the requested dates', () => {
+    expect(rowsForDates(dayMap, ['2026-08-02', '2026-08-03'])).toHaveLength(2);
+  });
+
+  it('ignores dates absent from the map', () => {
+    expect(rowsForDates(dayMap, ['2026-07-30'])).toEqual([]);
+  });
+});
+
+describe('totalsFor', () => {
+  it('counts done and cancelled separately', () => {
+    const rows = [
+      row('Albert Cai', 'A', 'done'),
+      row('Albert Cai', 'A', 'cancelled'),
+      row('Esther Liao', 'B', 'done'),
+    ];
+    expect(totalsFor(rows)).toEqual({ done: 2, cancelled: 1 });
+  });
+
+  it('returns zeroes for no rows', () => {
+    expect(totalsFor([])).toEqual({ done: 0, cancelled: 0 });
+  });
+});
+
+describe('byAssignee', () => {
+  const rows = [
+    row('Albert Cai', 'A'), row('Albert Cai', 'B'),
+    row('Esther Liao', 'A'), row('Esther Liao', 'B'), row('Esther Liao', 'C'),
+    row('Anh Tran', 'A'),
+    row(null, 'A'),
+    row('Albert Cai', 'A', 'cancelled'),
+  ];
+
+  it('ranks by done count, highest first', () => {
+    expect(byAssignee(rows).map((r) => r.key)).toEqual(
+      ['Esther Liao', 'Albert Cai', 'Other', 'Unassigned'],
+    );
+  });
+
+  it('counts cancelled without letting it affect rank', () => {
+    const albert = byAssignee(rows).find((r) => r.key === 'Albert Cai');
+    expect(albert).toEqual({ key: 'Albert Cai', done: 2, cancelled: 1 });
+  });
+
+  it('reconciles: row totals equal the overall total', () => {
+    const perRow = byAssignee(rows).reduce(
+      (acc, r) => ({ done: acc.done + r.done, cancelled: acc.cancelled + r.cancelled }),
+      { done: 0, cancelled: 0 },
+    );
+    expect(perRow).toEqual(totalsFor(rows));
+  });
+
+  it('omits roster members with no rows in the window', () => {
+    expect(byAssignee(rows).map((r) => r.key)).not.toContain('Luke Gazmin');
+  });
+});
+
+describe('byWorkType', () => {
+  const rows = [
+    row('Albert Cai', 'Credit Card: Overpayment'),
+    row('Albert Cai', 'Credit Card: Overpayment'),
+    row('Albert Cai', 'Wires Posting'),
+    row('Esther Liao', 'Wires Posting'),
+  ];
+
+  it('filters to one assignee', () => {
+    expect(byWorkType(rows, 'Albert Cai')).toEqual([
+      { workType: 'Credit Card: Overpayment', done: 2, cancelled: 0 },
+      { workType: 'Wires Posting', done: 1, cancelled: 0 },
+    ]);
+  });
+
+  it('covers every row when the key is null', () => {
+    const total = byWorkType(rows, null).reduce((n, r) => n + r.done, 0);
+    expect(total).toBe(4);
+  });
+});
+
+describe('dailySeries', () => {
+  const dayMap = new Map([
+    ['2026-08-01', [row('Albert Cai', 'A'), row('Esther Liao', 'A')]],
+    ['2026-08-02', [row('Albert Cai', 'A', 'cancelled')]],
+    ['2026-08-03', [row('Albert Cai', 'A')]],
+  ]);
+  const dates = ['2026-08-01', '2026-08-02', '2026-08-03'];
+
+  it('emits one value per date per series', () => {
+    const { series } = dailySeries(dayMap, dates);
+    const albert = series.find((s) => s.key === 'Albert Cai');
+    expect(albert.values).toEqual([1, 0, 1]);
+  });
+
+  it('counts only done in the series', () => {
+    const { series } = dailySeries(dayMap, dates);
+    expect(series.find((s) => s.key === 'Albert Cai').values[1]).toBe(0);
+  });
+
+  it('sums the total line across series', () => {
+    expect(dailySeries(dayMap, dates).total).toEqual([2, 0, 1]);
+  });
+
+  // The critical one: a day we failed to fetch must not look like a quiet day.
+  it('yields null, not zero, for a date missing from the map', () => {
+    const { series, total } = dailySeries(dayMap, [...dates, '2026-08-04']);
+    expect(series.find((s) => s.key === 'Albert Cai').values[3]).toBeNull();
+    expect(total[3]).toBeNull();
+  });
+});
